@@ -3,79 +3,64 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Indian Stock Dashboard", layout="wide")
 
-st.title("🇮🇳 Indian Stock Market PRO Dashboard")
+st.title("📈 Indian Stock Market Dashboard (Pro)")
 
-# Stock list
+# =========================
+# 📊 STOCK SELECTION
+# =========================
 stocks = {
-    "Reliance": "RELIANCE.NS",
     "TCS": "TCS.NS",
+    "Reliance": "RELIANCE.NS",
     "Infosys": "INFY.NS",
     "HDFC Bank": "HDFCBANK.NS",
     "ICICI Bank": "ICICIBANK.NS",
-    "SBI": "SBIN.NS",
-    "ITC": "ITC.NS"
+    "Wipro": "WIPRO.NS",
+    "SBI": "SBIN.NS"
 }
 
-# Sidebar
-st.sidebar.header("Filters")
-selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
-period = st.sidebar.selectbox("Select Period", ["1d", "5d", "1mo", "6mo", "1y"])
-
+selected_stock = st.selectbox("Select Stock", list(stocks.keys()))
 ticker = stocks[selected_stock]
 
-# Load data
-@st.cache_data(ttl=60)
-def load_data(ticker, period):
-    stock = yf.Ticker(ticker)
-    return stock.history(period=period, interval="1d")
+period = st.selectbox("Select Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 
-data = load_data(ticker, period)
+# =========================
+# 📥 FETCH DATA
+# =========================
+data = yf.download(ticker, period=period, interval="1m")
 
-# Handle empty data
+# =========================
+# ❌ ERROR HANDLING
+# =========================
 if data.empty:
-    st.warning("No data available. Try different stock or time.")
+    st.error("No data found. Try another stock or period.")
     st.stop()
 
-# ================= KPI =================
-col1, col2, col3 = st.columns(3)
-
-latest = data["Close"].iloc[-1]
-
-if len(data) > 1:
+# =========================
+# 📊 KPI METRICS
+# =========================
+if len(data) >= 2:
+    latest = data["Close"].iloc[-1]
     prev = data["Close"].iloc[-2]
     change = latest - prev
+    percent = (change / prev) * 100
+
+    col1, col2 = st.columns(2)
+
+    col1.metric("Current Price", f"₹ {latest:.2f}")
+    col2.metric("Change", f"{change:.2f}", f"{percent:.2f}%")
 else:
-    change = 0
+    st.warning("Not enough data for metrics")
 
-col1.metric("Current Price ₹", round(latest, 2), round(change, 2))
-col2.metric("High ₹", round(data["High"].max(), 2))
-col3.metric("Low ₹", round(data["Low"].min(), 2))
+# =========================
+# 📉 MOVING AVERAGE (BUY/SELL)
+# =========================
+data["MA20"] = data["Close"].rolling(window=20).mean()
 
-st.markdown("---")
-
-# ================= MOVING AVERAGE =================
-data["MA20"] = data["Close"].rolling(20).mean()
-data["MA50"] = data["Close"].rolling(50).mean()
-
-# ================= BUY/SELL SIGNAL =================
-data["Signal"] = 0
-data.loc[data["MA20"] > data["MA50"], "Signal"] = 1
-data.loc[data["MA20"] < data["MA50"], "Signal"] = -1
-
-last_signal = data["Signal"].iloc[-1]
-
-if last_signal == 1:
-    st.success("🟢 BUY Signal (MA20 > MA50)")
-elif last_signal == -1:
-    st.error("🔴 SELL Signal (MA20 < MA50)")
-else:
-    st.info("⚪ HOLD")
-
-# ================= CANDLESTICK =================
-st.subheader("📊 Candlestick Chart")
-
+# =========================
+# 🕯️ CANDLESTICK CHART
+# =========================
 fig = go.Figure()
 
 fig.add_trace(go.Candlestick(
@@ -84,30 +69,41 @@ fig.add_trace(go.Candlestick(
     high=data["High"],
     low=data["Low"],
     close=data["Close"],
-    name="Price"
+    name="Candlestick"
 ))
 
-# Moving averages
+# Moving Average line
 fig.add_trace(go.Scatter(
     x=data.index,
     y=data["MA20"],
-    line=dict(color="blue", width=1),
+    line=dict(color='blue', width=2),
     name="MA20"
 ))
 
-fig.add_trace(go.Scatter(
-    x=data.index,
-    y=data["MA50"],
-    line=dict(color="orange", width=1),
-    name="MA50"
-))
+fig.update_layout(
+    title=f"{selected_stock} Price Chart",
+    xaxis_title="Time",
+    yaxis_title="Price",
+    template="plotly_dark"
+)
 
 st.plotly_chart(fig, use_container_width=True)
 
-# ================= VOLUME =================
-st.subheader("📊 Volume")
-st.bar_chart(data["Volume"])
+# =========================
+# 📊 BUY / SELL SIGNAL
+# =========================
+st.subheader("📢 Trading Signal")
 
-# ================= TABLE =================
-st.subheader("📋 Recent Data")
+if len(data) >= 20:
+    if data["Close"].iloc[-1] > data["MA20"].iloc[-1]:
+        st.success("🟢 BUY Signal (Price above MA20)")
+    else:
+        st.error("🔴 SELL Signal (Price below MA20)")
+else:
+    st.warning("Not enough data for signals")
+
+# =========================
+# 📋 DATA TABLE
+# =========================
+st.subheader("📄 Raw Data")
 st.dataframe(data.tail(10))
